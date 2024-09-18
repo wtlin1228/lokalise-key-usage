@@ -1,0 +1,14 @@
+[package]
+name = "lokalise-key-usage"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+swc_core = { version = "0.104.2", features = [
+    "common", 
+    "ecma_ast", 
+    "ecma_visit",
+    "ecma_plugin_transform"
+]}
+swc_ecma_parser = { version = "0.150.0", features = ["typescript"] }
+anyhow = "1"
