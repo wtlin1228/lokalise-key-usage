@@ -2,6 +2,8 @@
 
 This tool can find all usages of lokalise keys. The output of this tool will be the input of dependency tracker.
 
+⚠️ This implementation only works for the following syntax, you could write your own to support your API or translation mark.
+
 ## Cases
 
 ### Simple
