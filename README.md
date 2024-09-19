@@ -6,6 +6,17 @@ This tool can find all usages of lokalise keys. The output of this tool will be 
 
 ## Cases
 
+1. for `const LABELS = translate(OBJ)`, should trace the usage of `LABELS`, like:
+
+   - `LABELS.a`
+   - `LABELS.a.b`
+   - `LABELS[key]`
+   - `LABELS.a[key]`
+
+2. for `const topLevelSymbol = translate(<String Literal>)`, just bind the `<String Literal>` it into its top level scopped symbol.
+
+3. for `const topLevelSymbol = translate(<Expression>)`, if the `<Expression>` can be evaluated at build time and is a string, bind it into its top level scopped symbol.
+
 ### Simple
 
 ```jsx
@@ -20,7 +31,7 @@ const Foo = () => {
 };
 ```
 
-- "lokalise.key.bird" -> <Foo>
+- "lokalise.key.bird" -> `<Foo>`
 
 ### Conditional
 
@@ -36,8 +47,8 @@ const Foo = (cond: boolean) => {
 };
 ```
 
-- "lokalise.key.bird" -> <Foo>
-- "lokalise.key.cat" -> <Foo>
+- "lokalise.key.bird" -> `<Foo>`
+- "lokalise.key.cat" -> `<Foo>`
 
 ### Computed Key
 
@@ -59,9 +70,9 @@ const Foo = (type: "cat" | "bird") => {
 };
 ```
 
-- "lokalise.key.bird" -> <Foo>
-- "lokalise.key.cat" -> <Foo>
-- "lokalise.key.dog" -> <Foo>
+- "lokalise.key.bird" -> `<Foo>`
+- "lokalise.key.cat" -> `<Foo>`
+- "lokalise.key.dog" -> `<Foo>`
 
 ### Pass Object, Not Value
 
@@ -83,8 +94,8 @@ const Foo = () => {
 };
 ```
 
-- "lokalise.key.bird" -> <Foo>
-- "lokalise.key.cat" -> <Foo>
+- "lokalise.key.bird" -> `<Foo>`
+- "lokalise.key.cat" -> `<Foo>`
 
 ### <Trans>
 
@@ -94,9 +105,13 @@ const LABEL_KEYS = {
 };
 
 const Foo = () => <Trans i18nKey={LABEL_KEYS.cat} />;
+
+const StyledTrans = styled(Trans)``;
+const Bar = () => <StyledTrans i18nKey={LABEL_KEYS.cat} />;
 ```
 
-- "lokalise.key.cat" -> <Foo>
+- "lokalise.key.cat" -> `<Foo>`
+- "lokalise.key.cat" -> `<Bar>`
 
 ### <TransBlock>
 
@@ -106,10 +121,51 @@ const LABEL_KEYS = {
 };
 
 const Foo = () => <TransBlock i18nKey={LABEL_KEYS.cat} />;
+
+const StyledTransBlock = styled(Trans)``;
+const Bar = () => <StyledTransBlock i18nKey={LABEL_KEYS.cat} />;
 ```
 
-- "lokalise.key.cat" -> <Foo>
+- "lokalise.key.cat" -> `<Foo>`
+- "lokalise.key.cat" -> `<Bar>`
 
 ### Testing
 
 Should be ignored.
+
+### Import
+
+```js
+export const LABELS = translate({
+  bird: "lokalise.key.bird",
+  cat: "lokalise.key.cat",
+  dog: "lokalise.key.dog",
+});
+```
+
+```jsx
+import { LABELS } from "./labels";
+
+const Foo = () => <div>{LABELS.bird}</div>;
+```
+
+- "lokalise.key.bird" -> `<Foo>`
+
+### Directly
+
+```js
+const MY_LABEL = translate("lokalise.key.bird");
+
+const Foo = () => <div>{translate("lokalise.key.bird")}</div>;
+```
+
+"lokalise.key.bird" -> `MY_LABEL`
+"lokalise.key.bird" -> `<Foo>`
+
+### CSS
+
+```jsx
+const box = styled.div`
+  transform: translate(0, 50%);
+`;
+```
