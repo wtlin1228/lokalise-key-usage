@@ -15,7 +15,11 @@ This tool can find all usages of lokalise keys. The output of this tool will be 
 
 2. for `const topLevelSymbol = translate(<String Literal>)`, just bind the `<String Literal>` it into its top level scopped symbol.
 
-3. for `const topLevelSymbol = translate(<Expression>)`, if the `<Expression>` can be evaluated at build time and is a string, bind it into its top level scopped symbol.
+3. for `const topLevelSymbol = translate(<String Literal>, { /* ... */ })`, just bind the `<String Literal>` it into its top level scopped symbol.
+
+4. for `const topLevelSymbol = translate(<Expression>)`, if the `<Expression>` can be evaluated at build time and is a string, bind it into its top level scopped symbol.
+
+   Babel has something like "try to evaluate", let's find out how to do the same in SWC.
 
 ### Simple
 
