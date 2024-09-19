@@ -21,6 +21,42 @@ This tool can find all usages of lokalise keys. The output of this tool will be 
 
    Babel has something like "try to evaluate", let's find out how to do the same in SWC.
 
+   Yes, it works.
+
+   input:
+
+   ```js
+   {
+     let a = 1;
+
+     if (a === 1) {
+       console.log(a);
+     }
+
+     const LOKALISE_KEY = "lokalise.key.cat";
+     const bar = translate(LOKALISE_KEY);
+
+     const LABEL_KEYS = {
+       a: {
+         b: {
+           c: "lokalise.key.cat",
+         },
+       },
+     };
+     const boo = translate(LABEL_KEYS.a.b.c);
+   }
+   ```
+
+   output:
+
+   ```js
+   {
+     if (true) console.log(1);
+     const bar = translate("lokalise.key.cat");
+     const boo = translate("lokalise.key.cat");
+   }
+   ```
+
 ### Simple
 
 ```jsx
