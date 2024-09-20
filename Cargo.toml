@@ -8,7 +8,8 @@ swc_core = { version = "0.104.2", features = [
     "common", 
     "ecma_ast", 
     "ecma_visit",
-    "ecma_plugin_transform"
+    "ecma_plugin_transform",
+    "ecma_minifier"
 ]}
 swc_ecma_parser = { version = "0.150.0", features = ["typescript"] }
 anyhow = "1"
