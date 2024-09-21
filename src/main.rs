@@ -1,11 +1,7 @@
 use std::path::Path;
 
 use swc_core::{
-    common::{
-        errors::{ColorConfig, Handler},
-        sync::Lrc,
-        FileName, Globals, Mark, SourceMap, GLOBALS,
-    },
+    common::{sync::Lrc, Globals, Mark, SourceMap, GLOBALS},
     ecma::{
         ast::*,
         minifier::{eval::Evaluator, marks::Marks},
@@ -13,14 +9,33 @@ use swc_core::{
         visit::{FoldWith, Visit, VisitWith},
     },
 };
-use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax};
+use swc_ecma_parser::{parse_file_as_module, Syntax, TsSyntax};
 
+/// Deal with those cases:
+///
+/// ```js
+/// const a = 'foo';
+/// const b = translate(a);
+/// ```
+///
+/// ```js
+/// import a from 'the/import/path';
+/// const b = translate(a);
+/// ```
+///
+/// Not deal with those cases:
+///
+/// ```js
+/// import a from 'the/import/path';
+/// const temp = a;
+/// const b = translate(temp);
+/// ```
 pub struct TranslateVisitor {
     evaluator: Evaluator,
 }
 
 impl TranslateVisitor {
-    pub fn new(module: &mut Module) -> Self {
+    pub fn new(module: &Module) -> Self {
         Self {
             evaluator: Evaluator::new(module.clone(), Marks::new()),
         }
@@ -29,7 +44,8 @@ impl TranslateVisitor {
 
 impl Visit for TranslateVisitor {
     fn visit_module(&mut self, node: &Module) {
-        // println!("{:#?}", node);
+        println!("{:#?}", node);
+
         node.visit_children_with(self);
     }
     fn visit_call_expr(&mut self, node: &CallExpr) {
@@ -41,60 +57,47 @@ impl Visit for TranslateVisitor {
                 }
                 None => {
                     println!("❌ {:#?}", eval_target);
+
+                    // if the identifier is a symbol imported from other modules
+                    // 1. parse that module
+                    // 2. inline that symbol
+                    // 3. try to evaluate again
                 }
             }
         }
     }
 }
 
-const CODE: &'static str = r#"
-const a = 'foo';
-const b = translate(a);
-"#;
-
 const PATH: &'static str = "./fixtures/index.js";
 
 fn main() {
     let cm: Lrc<SourceMap> = Default::default();
-    let handler = Handler::with_tty_emitter(ColorConfig::Auto, true, false, Some(cm.clone()));
-
-    // let fm = cm.new_source_file(Lrc::new(FileName::Custom("test.js".into())), CODE.into());
-
     let fm = cm
         .load_file(Path::new(PATH))
         .expect(format!("failed to load {:?}", PATH).as_str());
 
-    let lexer = Lexer::new(
+    let module = match parse_file_as_module(
+        &fm,
         Syntax::Typescript(TsSyntax {
-            tsx: true,
-            decorators: false,
-            dts: false,
+            tsx: PATH.ends_with("tsx") || PATH.ends_with("ts"),
+            decorators: true,
             no_early_errors: true,
-            disallow_ambiguous_jsx_like: true,
+            ..Default::default()
         }),
-        Default::default(),
-        StringInput::from(&*fm),
+        EsVersion::latest(),
         None,
-    );
-
-    let mut parser = Parser::new_from(lexer);
-
-    for e in parser.take_errors() {
-        e.into_diagnostic(&handler).emit();
-    }
-
-    let module = parser
-        .parse_module()
-        .map_err(|e| {
-            // Unrecoverable fatal error occurred
-            e.into_diagnostic(&handler).emit()
-        })
-        .expect("failed to parse module");
+        &mut Vec::new(),
+    ) {
+        Ok(v) => v,
+        // We are not testing parser
+        Err(..) => panic!("failed to parse {:?}", PATH),
+    };
 
     GLOBALS.set(&Globals::new(), move || {
-        let mut module = module.fold_with(&mut resolver(Mark::new(), Mark::new(), true));
+        // This is how swc manages identifiers. ref: https://rustdoc.swc.rs/swc_ecma_transforms/fn.resolver.html
+        let module = module.fold_with(&mut resolver(Mark::new(), Mark::new(), true));
 
-        let mut translate_visitor = TranslateVisitor::new(&mut module);
+        let mut translate_visitor = TranslateVisitor::new(&module);
 
         module.visit_with(&mut translate_visitor);
     });

@@ -19,6 +19,8 @@ This tool can find all usages of lokalise keys. The output of this tool will be 
 
 4. for `const topLevelSymbol = translate(<Expression>)`, if the `<Expression>` can be evaluated at build time and is a string, bind it into its top level scopped symbol.
 
+   evaluate: https://swc.rs/docs/configuration/minification#swcminifycode-options:~:text=evaluate%2C%20defaults%20to%20true.
+
    Babel has something like "try to evaluate", let's find out how to do the same in SWC.
 
    Yes, it works.
@@ -56,6 +58,8 @@ This tool can find all usages of lokalise keys. The output of this tool will be 
      const boo = translate("lokalise.key.cat");
    }
    ```
+
+## Code Exmaples
 
 ### Simple
 
