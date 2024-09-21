@@ -29,6 +29,7 @@ pub enum LABELS {
     Object(HashMap<String, TranslateObjectValue>),
 
     // If we found the object has computed keys, just collect all lokalise keys into a vector.
+    // Because usually we'll use partial or all of them in the runtime.
     Computed(HashSet<String>),
 }
 
@@ -63,6 +64,10 @@ fn flatten_translation_keys(object_lit: &ObjectLit) -> anyhow::Result<HashSet<St
                         }
                         _ => bail!("value can only be string and object literal"),
                     },
+                    Expr::Array(array_lit) => {
+                        let lazy_key = get_lazy_key_from_array_literal(array_lit)?;
+                        translation_keys.insert(lazy_key);
+                    }
                     _ => bail!("value can only be string and object literal"),
                 },
                 _ => bail!("only key-value prop is allowed"),
@@ -97,6 +102,10 @@ pub fn collect_labels_from_object_literal(object_lit: &ObjectLit) -> anyhow::Res
                                     }
                                     _ => bail!("value can only be string and object literal"),
                                 },
+                                Expr::Array(array_lit) => {
+                                    let lazy_key = get_lazy_key_from_array_literal(array_lit)?;
+                                    TranslateObjectValue::String(lazy_key)
+                                }
                                 _ => bail!("value can only be string and object literal"),
                             },
                         );
@@ -116,6 +125,10 @@ pub fn collect_labels_from_object_literal(object_lit: &ObjectLit) -> anyhow::Res
                                 }
                                 _ => bail!("value can only be string and object literal"),
                             },
+                            Expr::Array(array_lit) => {
+                                let lazy_key = get_lazy_key_from_array_literal(array_lit)?;
+                                translation_keys.insert(lazy_key);
+                            }
                             _ => bail!("value can only be string and object literal"),
                         }
                     }
@@ -131,6 +144,30 @@ pub fn collect_labels_from_object_literal(object_lit: &ObjectLit) -> anyhow::Res
         true => LABELS::Computed(translation_keys),
         false => LABELS::Object(labels),
     })
+}
+
+fn get_lazy_key_from_array_literal(array_lit: &ArrayLit) -> anyhow::Result<String> {
+    if array_lit.elems.len() != 2 {
+        bail!("array lit can only be ['<i18n key>', 'lazy']");
+    }
+    match &*(array_lit.elems[1].as_ref().unwrap().expr) {
+        Expr::Lit(lit) => match lit {
+            Lit::Str(Str { value, .. }) => {
+                if value.to_string() != "lazy" {
+                    bail!("array lit can only be ['<i18n key>', 'lazy']");
+                }
+            }
+            _ => bail!("array lit can only be ['<i18n key>', 'lazy']"),
+        },
+        _ => bail!("array lit can only be ['<i18n key>', 'lazy']"),
+    }
+    match &*(array_lit.elems[0].as_ref().unwrap().expr) {
+        Expr::Lit(lit) => match lit {
+            Lit::Str(Str { value, .. }) => return Ok(value.to_string()),
+            _ => bail!("array lit can only be ['<i18n key>', 'lazy']"),
+        },
+        _ => bail!("array lit can only be ['<i18n key>', 'lazy']"),
+    }
 }
 
 #[cfg(test)]
@@ -351,30 +388,107 @@ mod test {
     }
 
     #[test]
+    fn lazy() {
+        let object_lit = parse_object_lit(
+            r#"
+            {
+                bird: ["i18n.bird", "lazy"],
+                size: {
+                    [SIZE.samll]: ["i18n.bird.small", "lazy"],
+                    [SIZE.large]: ["i18n.bird.large", "lazy"],
+                },
+            }
+            "#,
+        )
+        .unwrap();
+        let labels = collect_labels_from_object_literal(&object_lit).unwrap();
+        let object = labels.get_object().unwrap();
+        assert_eq!(
+            object.get("bird").unwrap().get_string().unwrap(),
+            "i18n.bird"
+        );
+        let size_computed = object
+            .get("size")
+            .unwrap()
+            .get_labels()
+            .unwrap()
+            .get_computed()
+            .unwrap();
+        assert!(size_computed.contains("i18n.bird.small"));
+        assert!(size_computed.contains("i18n.bird.large"));
+    }
+
+    #[test]
+    #[should_panic(expected = "array lit can only be ['<i18n key>', 'lazy']")]
+    fn lazy_wrong_format_1() {
+        let object_lit = parse_object_lit(
+            r#"
+            {
+                bird: ["i18n.bird"],
+            }
+            "#,
+        )
+        .unwrap();
+        collect_labels_from_object_literal(&object_lit).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "array lit can only be ['<i18n key>', 'lazy']")]
+    fn lazy_wrong_format_2() {
+        let object_lit = parse_object_lit(
+            r#"
+            {
+                bird: ["i18n.bird", "kirby"],
+            }
+            "#,
+        )
+        .unwrap();
+        collect_labels_from_object_literal(&object_lit).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "array lit can only be ['<i18n key>', 'lazy']")]
+    fn lazy_wrong_format_3() {
+        let object_lit = parse_object_lit(
+            r#"
+            {
+                bird: ["i18n.bird", "lazy", "kirby"],
+            }
+            "#,
+        )
+        .unwrap();
+        collect_labels_from_object_literal(&object_lit).unwrap();
+    }
+
+    #[test]
     fn complex() {
         let object_lit = parse_object_lit(
             r#"
             {
                 title: "i18n.pet.party",
+                desc: ["i18n.pet.party.desc", "lazy"],
                 bird: {
                     name: "i18n.bird",
+                    desc: ["i18n.bird.desc", "lazy"],
                     size: {
                         [SIZE.samll]: "i18n.bird.small",
-                        [SIZE.large]: "i18n.bird.large",
+                        [SIZE.large]: ["i18n.bird.large", "lazy"],
                     },
                 },
                 cat: {
                     name: "i18n.cat",
+                    desc: ["i18n.cat.desc", "lazy"],
                     size: {
                         [SIZE.samll]: "i18n.cat.small",
-                        [SIZE.large]: "i18n.cat.large",
+                        [SIZE.large]: ["i18n.cat.large", "lazy"],
                     },
                 },
                 dog: {
                     name: "i18n.dog",
+                    desc: ["i18n.dog.desc", "lazy"],
                     size: {
                         [SIZE.samll]: "i18n.dog.small",
-                        [SIZE.large]: "i18n.dog.large",
+                        [SIZE.large]: ["i18n.dog.large", "lazy"],
                     },
                 },
             }
@@ -387,6 +501,10 @@ mod test {
             object.get("title").unwrap().get_string().unwrap(),
             "i18n.pet.party"
         );
+        assert_eq!(
+            object.get("desc").unwrap().get_string().unwrap(),
+            "i18n.pet.party.desc"
+        );
 
         let bird_object = object
             .get("bird")
@@ -398,6 +516,10 @@ mod test {
         assert_eq!(
             bird_object.get("name").unwrap().get_string().unwrap(),
             "i18n.bird"
+        );
+        assert_eq!(
+            bird_object.get("desc").unwrap().get_string().unwrap(),
+            "i18n.bird.desc"
         );
         let bird_size_computed = bird_object
             .get("size")
@@ -420,6 +542,10 @@ mod test {
             cat_object.get("name").unwrap().get_string().unwrap(),
             "i18n.cat"
         );
+        assert_eq!(
+            cat_object.get("desc").unwrap().get_string().unwrap(),
+            "i18n.cat.desc"
+        );
         let cat_size_computed = cat_object
             .get("size")
             .unwrap()
@@ -440,6 +566,10 @@ mod test {
         assert_eq!(
             dog_object.get("name").unwrap().get_string().unwrap(),
             "i18n.dog"
+        );
+        assert_eq!(
+            dog_object.get("desc").unwrap().get_string().unwrap(),
+            "i18n.dog.desc"
         );
         let dog_size_computed = dog_object
             .get("size")

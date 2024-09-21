@@ -111,6 +111,6 @@ mod tests {
 
     #[test]
     fn parse_base_case() {
-        parse_module("./fixtures/base-case.js");
+        parse_module(".src/base_case_visitor/fixtures/base-case.js");
     }
 }
