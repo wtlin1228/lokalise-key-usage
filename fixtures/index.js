@@ -1,6 +1,7 @@
 import a1 from "./a";
-const b1 = translate(a1);
+const temp1 = a1;
+const b1 = translate(temp1);
 
-const a2 = "foo";
-
-const b2 = translate(a2);
+// const a2 = "foo";
+// const temp2 = a2;
+// const b2 = translate(temp2);
