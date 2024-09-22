@@ -1,4 +1,4 @@
-use anyhow::bail;
+use anyhow::{bail, Context};
 use std::collections::{HashMap, HashSet};
 use swc_core::ecma::ast::*;
 
@@ -46,6 +46,84 @@ impl LABELS {
             LABELS::Object(_) => bail!("it's an object"),
             LABELS::Computed(hash_set) => Ok(hash_set),
         }
+    }
+
+    // follow the path, then collect all the nested keys
+    pub fn get_translation_keys_for_member_expr(
+        &self,
+        member_expr: &MemberExpr,
+    ) -> anyhow::Result<HashSet<String>> {
+        let mut obj: &Box<Expr> = &member_expr.obj;
+        let mut prop_chain: Vec<&MemberProp> = vec![&member_expr.prop];
+        loop {
+            match &**obj {
+                Expr::Member(member_expr) => {
+                    prop_chain.push(&member_expr.prop);
+                    obj = &member_expr.obj;
+                }
+                Expr::Ident(_) => break,
+                _ => bail!("member.obj can only be member_expr and ident"),
+            }
+        }
+
+        let mut labels = self;
+        for prop in prop_chain.iter().rev() {
+            match prop {
+                MemberProp::Ident(ident_name) => {
+                    let sym = ident_name.sym.as_str();
+                    match labels {
+                        LABELS::Object(hash_map) => {
+                            let next = hash_map
+                                .get(sym)
+                                .context(format!("failed to access {}", sym))?;
+                            match next {
+                                TranslateObjectValue::String(s) => {
+                                    // the simplest case, return directly
+                                    return Ok(HashSet::from([s.to_owned()]));
+                                }
+                                TranslateObjectValue::NestedLabels(nested_labels) => {
+                                    labels = nested_labels
+                                }
+                            }
+                        }
+                        LABELS::Computed(_) => bail!("try to access computed with ident"),
+                    }
+                }
+                MemberProp::Computed(_) => {
+                    // once a computed prop found, stop and collect all the translation keys
+                    break;
+                }
+                MemberProp::PrivateName(_) => unimplemented!("what is private name? 🧐"),
+            }
+        }
+
+        let mut to_collect = vec![labels];
+        let mut keys = HashSet::new();
+        while to_collect.len() > 0 {
+            let mut to_collect_next: Vec<&LABELS> = vec![];
+            for labels in to_collect {
+                match labels {
+                    LABELS::Object(hash_map) => {
+                        for v in hash_map.values() {
+                            match v {
+                                TranslateObjectValue::String(s) => {
+                                    keys.insert(s.to_owned());
+                                }
+                                TranslateObjectValue::NestedLabels(nested_labels) => {
+                                    to_collect_next.push(nested_labels)
+                                }
+                            }
+                        }
+                    }
+                    LABELS::Computed(hash_set) => {
+                        keys.extend(hash_set.clone());
+                    }
+                }
+            }
+            to_collect = to_collect_next;
+        }
+
+        Ok(keys)
     }
 }
 
@@ -171,18 +249,11 @@ fn get_lazy_key_from_array_literal(array_lit: &ArrayLit) -> anyhow::Result<Strin
 }
 
 #[cfg(test)]
-mod test {
-    use anyhow::Context;
-    use swc_core::{
-        common::{sync::Lrc, FileName, SourceMap},
-        ecma::{
-            ast::*,
-            visit::{Visit, VisitWith},
-        },
-    };
-    use swc_ecma_parser::{parse_file_as_module, Syntax, TsSyntax};
-
+mod extract_labels_tests {
     use super::*;
+    use crate::test_utils;
+    use anyhow::Context;
+    use swc_core::ecma::visit::{Visit, VisitWith};
 
     pub struct Visitor {
         object_lit: Option<ObjectLit>,
@@ -198,29 +269,9 @@ mod test {
         }
     }
 
-    fn parse_module(input: &str) -> anyhow::Result<Module> {
-        let cm: Lrc<SourceMap> = Default::default();
-        let fm = cm.new_source_file(Lrc::new(FileName::Custom("test.js".into())), input.into());
-        match parse_file_as_module(
-            &fm,
-            Syntax::Typescript(TsSyntax {
-                tsx: true,
-                decorators: true,
-                no_early_errors: true,
-                ..Default::default()
-            }),
-            EsVersion::latest(),
-            None,
-            &mut Vec::new(),
-        ) {
-            Ok(module) => Ok(module),
-            Err(_) => bail!("failed to parse module"),
-        }
-    }
-
     fn parse_object_lit(input: &str) -> anyhow::Result<ObjectLit> {
         let input = format!("const obj = {}", input);
-        let module = parse_module(&input)?;
+        let module = test_utils::parse_module(&input)?;
         let mut visitor = Visitor::new();
         module.visit_with(&mut visitor);
         Ok(visitor.object_lit.context("failed to get object literal")?)
