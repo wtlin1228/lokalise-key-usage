@@ -255,7 +255,7 @@ mod extract_labels_tests {
     use anyhow::Context;
     use swc_core::ecma::visit::{Visit, VisitWith};
 
-    pub struct Visitor {
+    struct Visitor {
         object_lit: Option<ObjectLit>,
     }
     impl Visitor {
@@ -631,5 +631,369 @@ mod extract_labels_tests {
             .unwrap();
         assert!(dog_size_computed.contains("i18n.dog.small"));
         assert!(dog_size_computed.contains("i18n.dog.large"));
+    }
+}
+
+#[cfg(test)]
+mod access_labels_tests {
+    use super::*;
+    use crate::test_utils;
+    use anyhow::Context;
+    use swc_core::ecma::visit::{Visit, VisitWith};
+
+    struct ObjectLitVisitor {
+        object_lit: Option<ObjectLit>,
+    }
+    impl ObjectLitVisitor {
+        pub fn new() -> Self {
+            Self { object_lit: None }
+        }
+    }
+    impl Visit for ObjectLitVisitor {
+        fn visit_object_lit(&mut self, node: &ObjectLit) {
+            self.object_lit = Some(node.clone());
+        }
+    }
+    fn parse_object_lit(input: &str) -> anyhow::Result<ObjectLit> {
+        let module = test_utils::parse_module(&input)?;
+        let mut object_lit_visitor = ObjectLitVisitor::new();
+        module.visit_with(&mut object_lit_visitor);
+        Ok(object_lit_visitor
+            .object_lit
+            .context("failed to get object literal")?)
+    }
+
+    struct MemberExprVisitor {
+        member_expr: Option<MemberExpr>,
+    }
+    impl MemberExprVisitor {
+        pub fn new() -> Self {
+            Self { member_expr: None }
+        }
+    }
+    impl Visit for MemberExprVisitor {
+        fn visit_member_expr(&mut self, node: &MemberExpr) {
+            self.member_expr = Some(node.clone());
+        }
+    }
+    fn parse_member_expr(input: &str) -> anyhow::Result<MemberExpr> {
+        let input = format!("const foo = {}", input);
+        let module = test_utils::parse_module(&input)?;
+        let mut member_expr_visitor = MemberExprVisitor::new();
+        module.visit_with(&mut member_expr_visitor);
+        Ok(member_expr_visitor
+            .member_expr
+            .context("failed to get member expression")?)
+    }
+
+    #[test]
+    #[should_panic(expected = "failed to access a")]
+    fn access_invalid_prop() {
+        let object_lit = parse_object_lit(
+            r#"
+            const LABELS = {}
+            "#,
+        )
+        .unwrap();
+        let member_expr = parse_member_expr("LABELS.a.b.c").unwrap();
+        let labels = collect_labels_from_object_literal(&object_lit).unwrap();
+        labels
+            .get_translation_keys_for_member_expr(&member_expr)
+            .unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "try to access computed with ident")]
+    fn access_computed_with_ident() {
+        let object_lit = parse_object_lit(
+            r#"
+            const LABELS = {
+                [PET.bird]: "i18n.bird",
+                [PET.cat]: "i18n.cat",
+                [PET.dog]: "i18n.dog",
+            }
+            "#,
+        )
+        .unwrap();
+        let member_expr = parse_member_expr("LABELS.bird").unwrap();
+        let labels = collect_labels_from_object_literal(&object_lit).unwrap();
+        labels
+            .get_translation_keys_for_member_expr(&member_expr)
+            .unwrap();
+    }
+
+    #[test]
+    fn simple_ident() {
+        let object_lit = parse_object_lit(
+            r#"
+            const LABELS = {
+                bird: "i18n.bird",
+                cat: "i18n.cat",
+                dog: "i18n.dog",
+            }
+            "#,
+        )
+        .unwrap();
+        let member_expr = parse_member_expr("LABELS.bird").unwrap();
+        let labels = collect_labels_from_object_literal(&object_lit).unwrap();
+        let keys = labels
+            .get_translation_keys_for_member_expr(&member_expr)
+            .unwrap();
+        ["i18n.bird"].iter().for_each(|&key| {
+            assert!(keys.contains(key));
+        });
+    }
+
+    #[test]
+    fn simple_computed() {
+        let object_lit = parse_object_lit(
+            r#"
+            const LABELS = {
+                [PET.bird]: "i18n.bird",
+                [PET.cat]: "i18n.cat",
+                [PET.dog]: "i18n.dog",
+            }
+            "#,
+        )
+        .unwrap();
+        let member_expr = parse_member_expr("LABELS[type]").unwrap();
+        let labels = collect_labels_from_object_literal(&object_lit).unwrap();
+        let keys = labels
+            .get_translation_keys_for_member_expr(&member_expr)
+            .unwrap();
+        ["i18n.bird", "i18n.cat", "i18n.dog"]
+            .iter()
+            .for_each(|&key| {
+                assert!(keys.contains(key));
+            });
+    }
+
+    #[test]
+    fn access_with_computed() {
+        let object_lit = parse_object_lit(
+            r#"
+            const LABELS = {
+                bird: "i18n.bird",
+                cat: "i18n.cat",
+                dog: "i18n.dog",
+            }
+            "#,
+        )
+        .unwrap();
+        let member_expr = parse_member_expr("LABELS[type]").unwrap();
+        let labels = collect_labels_from_object_literal(&object_lit).unwrap();
+        let keys = labels
+            .get_translation_keys_for_member_expr(&member_expr)
+            .unwrap();
+        ["i18n.bird", "i18n.cat", "i18n.dog"]
+            .iter()
+            .for_each(|&key| {
+                assert!(keys.contains(key));
+            });
+    }
+
+    #[test]
+    fn collect_all() {
+        let object_lit = parse_object_lit(
+            r#"
+            const LABELS = {
+                title: "i18n.pet.party",
+                desc: ["i18n.pet.party.desc", "lazy"],
+                bird: {
+                    name: "i18n.bird",
+                    desc: ["i18n.bird.desc", "lazy"],
+                    size: {
+                        [SIZE.samll]: "i18n.bird.small",
+                        [SIZE.large]: ["i18n.bird.large", "lazy"],
+                    },
+                },
+                cat: {
+                    name: "i18n.cat",
+                    desc: ["i18n.cat.desc", "lazy"],
+                    size: {
+                        [SIZE.samll]: "i18n.cat.small",
+                        [SIZE.large]: ["i18n.cat.large", "lazy"],
+                    },
+                },
+                dog: {
+                    name: "i18n.dog",
+                    desc: ["i18n.dog.desc", "lazy"],
+                    size: {
+                        [SIZE.samll]: "i18n.dog.small",
+                        [SIZE.large]: ["i18n.dog.large", "lazy"],
+                    },
+                },
+            }
+            "#,
+        )
+        .unwrap();
+        let member_expr = parse_member_expr("LABELS[type]").unwrap();
+        let labels = collect_labels_from_object_literal(&object_lit).unwrap();
+        let keys = labels
+            .get_translation_keys_for_member_expr(&member_expr)
+            .unwrap();
+        [
+            "i18n.pet.party",
+            "i18n.pet.party.desc",
+            "i18n.bird",
+            "i18n.bird.desc",
+            "i18n.bird.small",
+            "i18n.bird.large",
+            "i18n.cat",
+            "i18n.cat.desc",
+            "i18n.cat.small",
+            "i18n.cat.large",
+            "i18n.dog",
+            "i18n.dog.desc",
+            "i18n.dog.small",
+            "i18n.dog.large",
+        ]
+        .iter()
+        .for_each(|&key| {
+            assert!(keys.contains(key));
+        });
+    }
+
+    #[test]
+    fn prop_chain() {
+        let object_lit = parse_object_lit(
+            r#"
+            const LABELS = {
+                a: {
+                    b: {
+                        c: 'i18n.c',
+                    },
+                },
+            }
+            "#,
+        )
+        .unwrap();
+        let labels = collect_labels_from_object_literal(&object_lit).unwrap();
+
+        let member_expr = parse_member_expr("LABELS.a.b.c").unwrap();
+        assert!(labels
+            .get_translation_keys_for_member_expr(&member_expr)
+            .unwrap()
+            .contains("i18n.c"));
+
+        let member_expr = parse_member_expr("LABELS.a.b").unwrap();
+        assert!(labels
+            .get_translation_keys_for_member_expr(&member_expr)
+            .unwrap()
+            .contains("i18n.c"));
+
+        let member_expr = parse_member_expr("LABELS.a").unwrap();
+        assert!(labels
+            .get_translation_keys_for_member_expr(&member_expr)
+            .unwrap()
+            .contains("i18n.c"));
+    }
+
+    #[test]
+    fn prop_chain_with_computed() {
+        let object_lit = parse_object_lit(
+            r#"
+            const LABELS = {
+                title: "i18n.pet.party",
+                desc: ["i18n.pet.party.desc", "lazy"],
+                bird: {
+                    name: "i18n.bird",
+                    desc: ["i18n.bird.desc", "lazy"],
+                    size: {
+                        [SIZE.samll]: "i18n.bird.small",
+                        [SIZE.large]: ["i18n.bird.large", "lazy"],
+                    },
+                },
+                cat: {
+                    name: "i18n.cat",
+                    desc: ["i18n.cat.desc", "lazy"],
+                    size: {
+                        [SIZE.samll]: "i18n.cat.small",
+                        [SIZE.large]: ["i18n.cat.large", "lazy"],
+                    },
+                },
+                dog: {
+                    name: "i18n.dog",
+                    desc: ["i18n.dog.desc", "lazy"],
+                    size: {
+                        [SIZE.samll]: "i18n.dog.small",
+                        [SIZE.large]: ["i18n.dog.large", "lazy"],
+                    },
+                },
+            }
+            "#,
+        )
+        .unwrap();
+        let labels = collect_labels_from_object_literal(&object_lit).unwrap();
+
+        let member_expr = parse_member_expr("LABELS.bird.size[type]").unwrap();
+        let keys = labels
+            .get_translation_keys_for_member_expr(&member_expr)
+            .unwrap();
+        ["i18n.bird.small", "i18n.bird.large"]
+            .iter()
+            .for_each(|&key| {
+                assert!(keys.contains(key));
+            });
+
+        let member_expr = parse_member_expr("LABELS[type].size.small").unwrap();
+        let keys = labels
+            .get_translation_keys_for_member_expr(&member_expr)
+            .unwrap();
+        [
+            "i18n.pet.party",
+            "i18n.pet.party.desc",
+            "i18n.bird",
+            "i18n.bird.desc",
+            "i18n.bird.small",
+            "i18n.bird.large",
+            "i18n.cat",
+            "i18n.cat.desc",
+            "i18n.cat.small",
+            "i18n.cat.large",
+            "i18n.dog",
+            "i18n.dog.desc",
+            "i18n.dog.small",
+            "i18n.dog.large",
+        ]
+        .iter()
+        .for_each(|&key| {
+            assert!(keys.contains(key));
+        });
+    }
+
+    #[test]
+    fn lazy() {
+        let object_lit = parse_object_lit(
+            r#"
+            const LABELS = {
+                bird: ["i18n.bird", "lazy"],
+                size: {
+                    [SIZE.samll]: ["i18n.bird.small", "lazy"],
+                    [SIZE.large]: ["i18n.bird.large", "lazy"],
+                },
+            }
+            "#,
+        )
+        .unwrap();
+        let labels = collect_labels_from_object_literal(&object_lit).unwrap();
+
+        let member_expr = parse_member_expr("LABELS.bird({ name: 'シマエナガ' })").unwrap();
+        let keys = labels
+            .get_translation_keys_for_member_expr(&member_expr)
+            .unwrap();
+        ["i18n.bird"].iter().for_each(|&key| {
+            assert!(keys.contains(key));
+        });
+
+        let member_expr = parse_member_expr("LABELS.size[type]({ name: 'シマエナガ' })").unwrap();
+        let keys = labels
+            .get_translation_keys_for_member_expr(&member_expr)
+            .unwrap();
+        ["i18n.bird.small", "i18n.bird.large"]
+            .iter()
+            .for_each(|&key| {
+                assert!(keys.contains(key));
+            });
     }
 }
