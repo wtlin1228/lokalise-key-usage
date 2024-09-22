@@ -686,6 +686,25 @@ mod access_labels_tests {
             .context("failed to get member expression")?)
     }
 
+    macro_rules! assert_keys {
+        ($labels:expr, $($member_expr:expr => $expected_keys:expr),* $(,)?) => {{
+            let object_lit = parse_object_lit($labels).unwrap();
+            let labels = collect_labels_from_object_literal(&object_lit).unwrap();
+
+            $(
+                let member_expr = parse_member_expr($member_expr).unwrap();
+                let keys = labels
+                    .get_translation_keys_for_member_expr(&member_expr)
+                    .unwrap();
+
+                assert_eq!(keys.len(), $expected_keys.len(), "keys count mismatch");
+                for &expected_key in $expected_keys.iter() {
+                    assert!(keys.contains(expected_key), "missing key: {}", expected_key);
+                }
+            )*
+        }};
+    }
+
     #[test]
     #[should_panic(expected = "failed to access a")]
     fn access_invalid_prop() {
@@ -723,30 +742,25 @@ mod access_labels_tests {
     }
 
     #[test]
-    fn simple_ident() {
-        let object_lit = parse_object_lit(
+    fn simple_object() {
+        assert_keys!(
             r#"
             const LABELS = {
                 bird: "i18n.bird",
                 cat: "i18n.cat",
                 dog: "i18n.dog",
-            }
+            };
             "#,
-        )
-        .unwrap();
-        let member_expr = parse_member_expr("LABELS.bird").unwrap();
-        let labels = collect_labels_from_object_literal(&object_lit).unwrap();
-        let keys = labels
-            .get_translation_keys_for_member_expr(&member_expr)
-            .unwrap();
-        ["i18n.bird"].iter().for_each(|&key| {
-            assert!(keys.contains(key));
-        });
+            "LABELS.bird" => ["i18n.bird"],
+            "LABELS.cat" => ["i18n.cat"],
+            "LABELS.dog" => ["i18n.dog"],
+            "LABELS[type]" => ["i18n.bird", "i18n.cat", "i18n.dog"]
+        );
     }
 
     #[test]
     fn simple_computed() {
-        let object_lit = parse_object_lit(
+        assert_keys!(
             r#"
             const LABELS = {
                 [PET.bird]: "i18n.bird",
@@ -754,47 +768,13 @@ mod access_labels_tests {
                 [PET.dog]: "i18n.dog",
             }
             "#,
-        )
-        .unwrap();
-        let member_expr = parse_member_expr("LABELS[type]").unwrap();
-        let labels = collect_labels_from_object_literal(&object_lit).unwrap();
-        let keys = labels
-            .get_translation_keys_for_member_expr(&member_expr)
-            .unwrap();
-        ["i18n.bird", "i18n.cat", "i18n.dog"]
-            .iter()
-            .for_each(|&key| {
-                assert!(keys.contains(key));
-            });
+            "LABELS[type]" => ["i18n.bird", "i18n.cat", "i18n.dog"],
+        );
     }
 
     #[test]
-    fn access_with_computed() {
-        let object_lit = parse_object_lit(
-            r#"
-            const LABELS = {
-                bird: "i18n.bird",
-                cat: "i18n.cat",
-                dog: "i18n.dog",
-            }
-            "#,
-        )
-        .unwrap();
-        let member_expr = parse_member_expr("LABELS[type]").unwrap();
-        let labels = collect_labels_from_object_literal(&object_lit).unwrap();
-        let keys = labels
-            .get_translation_keys_for_member_expr(&member_expr)
-            .unwrap();
-        ["i18n.bird", "i18n.cat", "i18n.dog"]
-            .iter()
-            .for_each(|&key| {
-                assert!(keys.contains(key));
-            });
-    }
-
-    #[test]
-    fn collect_all() {
-        let object_lit = parse_object_lit(
+    fn complex() {
+        assert_keys!(
             r#"
             const LABELS = {
                 title: "i18n.pet.party",
@@ -825,175 +805,63 @@ mod access_labels_tests {
                 },
             }
             "#,
-        )
-        .unwrap();
-        let member_expr = parse_member_expr("LABELS[type]").unwrap();
-        let labels = collect_labels_from_object_literal(&object_lit).unwrap();
-        let keys = labels
-            .get_translation_keys_for_member_expr(&member_expr)
-            .unwrap();
-        [
-            "i18n.pet.party",
-            "i18n.pet.party.desc",
-            "i18n.bird",
-            "i18n.bird.desc",
-            "i18n.bird.small",
-            "i18n.bird.large",
-            "i18n.cat",
-            "i18n.cat.desc",
-            "i18n.cat.small",
-            "i18n.cat.large",
-            "i18n.dog",
-            "i18n.dog.desc",
-            "i18n.dog.small",
-            "i18n.dog.large",
-        ]
-        .iter()
-        .for_each(|&key| {
-            assert!(keys.contains(key));
-        });
-    }
+            "LABELS.title" => ["i18n.pet.party"],
+            "LABELS.desc" => ["i18n.pet.party.desc"],
 
-    #[test]
-    fn prop_chain() {
-        let object_lit = parse_object_lit(
-            r#"
-            const LABELS = {
-                a: {
-                    b: {
-                        c: 'i18n.c',
-                    },
-                },
-            }
-            "#,
-        )
-        .unwrap();
-        let labels = collect_labels_from_object_literal(&object_lit).unwrap();
+            "LABELS.bird.name" => ["i18n.bird"],
+            "LABELS.bird.desc({ name: 'シマエナガ' })" => ["i18n.bird.desc"],
+            "LABELS.bird.size" => ["i18n.bird.small", "i18n.bird.large"],
+            "LABELS.bird.size[type]" => ["i18n.bird.small", "i18n.bird.large"],
+            "LABELS.bird.size[type]({ name: 'シマエナガ' })" => ["i18n.bird.small", "i18n.bird.large"],
+            "LABELS.bird" => [ "i18n.bird", "i18n.bird.desc", "i18n.bird.small", "i18n.bird.large"],
 
-        let member_expr = parse_member_expr("LABELS.a.b.c").unwrap();
-        assert!(labels
-            .get_translation_keys_for_member_expr(&member_expr)
-            .unwrap()
-            .contains("i18n.c"));
+            "LABELS.cat.name" => ["i18n.cat"],
+            "LABELS.cat.desc({ name: '貓咪' })" => ["i18n.cat.desc"],
+            "LABELS.cat.size" => ["i18n.cat.small", "i18n.cat.large"],
+            "LABELS.cat.size[type]" => ["i18n.cat.small", "i18n.cat.large"],
+            "LABELS.cat.size[type]({ name: '貓咪' })" => ["i18n.cat.small", "i18n.cat.large"],
+            "LABELS.cat" => [ "i18n.cat", "i18n.cat.desc", "i18n.cat.small", "i18n.cat.large"],
 
-        let member_expr = parse_member_expr("LABELS.a.b").unwrap();
-        assert!(labels
-            .get_translation_keys_for_member_expr(&member_expr)
-            .unwrap()
-            .contains("i18n.c"));
+            "LABELS.dog.name" => ["i18n.dog"],
+            "LABELS.dog.desc({ name: 'Oatchi' })" => ["i18n.dog.desc"],
+            "LABELS.dog.size" => ["i18n.dog.small", "i18n.dog.large"],
+            "LABELS.dog.size[type]" => ["i18n.dog.small", "i18n.dog.large"],
+            "LABELS.dog.size[type]({ name: 'Oatchi' })" => ["i18n.dog.small", "i18n.dog.large"],
+            "LABELS.dog" => [ "i18n.dog", "i18n.dog.desc", "i18n.dog.small", "i18n.dog.large"],
 
-        let member_expr = parse_member_expr("LABELS.a").unwrap();
-        assert!(labels
-            .get_translation_keys_for_member_expr(&member_expr)
-            .unwrap()
-            .contains("i18n.c"));
-    }
+            "LABELS[type]" => [
+                "i18n.pet.party",
+                "i18n.pet.party.desc",
+                "i18n.bird",
+                "i18n.bird.desc",
+                "i18n.bird.small",
+                "i18n.bird.large",
+                "i18n.cat",
+                "i18n.cat.desc",
+                "i18n.cat.small",
+                "i18n.cat.large",
+                "i18n.dog",
+                "i18n.dog.desc",
+                "i18n.dog.small",
+                "i18n.dog.large",
+            ],
 
-    #[test]
-    fn prop_chain_with_computed() {
-        let object_lit = parse_object_lit(
-            r#"
-            const LABELS = {
-                title: "i18n.pet.party",
-                desc: ["i18n.pet.party.desc", "lazy"],
-                bird: {
-                    name: "i18n.bird",
-                    desc: ["i18n.bird.desc", "lazy"],
-                    size: {
-                        [SIZE.samll]: "i18n.bird.small",
-                        [SIZE.large]: ["i18n.bird.large", "lazy"],
-                    },
-                },
-                cat: {
-                    name: "i18n.cat",
-                    desc: ["i18n.cat.desc", "lazy"],
-                    size: {
-                        [SIZE.samll]: "i18n.cat.small",
-                        [SIZE.large]: ["i18n.cat.large", "lazy"],
-                    },
-                },
-                dog: {
-                    name: "i18n.dog",
-                    desc: ["i18n.dog.desc", "lazy"],
-                    size: {
-                        [SIZE.samll]: "i18n.dog.small",
-                        [SIZE.large]: ["i18n.dog.large", "lazy"],
-                    },
-                },
-            }
-            "#,
-        )
-        .unwrap();
-        let labels = collect_labels_from_object_literal(&object_lit).unwrap();
-
-        let member_expr = parse_member_expr("LABELS.bird.size[type]").unwrap();
-        let keys = labels
-            .get_translation_keys_for_member_expr(&member_expr)
-            .unwrap();
-        ["i18n.bird.small", "i18n.bird.large"]
-            .iter()
-            .for_each(|&key| {
-                assert!(keys.contains(key));
-            });
-
-        let member_expr = parse_member_expr("LABELS[type].size.small").unwrap();
-        let keys = labels
-            .get_translation_keys_for_member_expr(&member_expr)
-            .unwrap();
-        [
-            "i18n.pet.party",
-            "i18n.pet.party.desc",
-            "i18n.bird",
-            "i18n.bird.desc",
-            "i18n.bird.small",
-            "i18n.bird.large",
-            "i18n.cat",
-            "i18n.cat.desc",
-            "i18n.cat.small",
-            "i18n.cat.large",
-            "i18n.dog",
-            "i18n.dog.desc",
-            "i18n.dog.small",
-            "i18n.dog.large",
-        ]
-        .iter()
-        .for_each(|&key| {
-            assert!(keys.contains(key));
-        });
-    }
-
-    #[test]
-    fn lazy() {
-        let object_lit = parse_object_lit(
-            r#"
-            const LABELS = {
-                bird: ["i18n.bird", "lazy"],
-                size: {
-                    [SIZE.samll]: ["i18n.bird.small", "lazy"],
-                    [SIZE.large]: ["i18n.bird.large", "lazy"],
-                },
-            }
-            "#,
-        )
-        .unwrap();
-        let labels = collect_labels_from_object_literal(&object_lit).unwrap();
-
-        let member_expr = parse_member_expr("LABELS.bird({ name: 'シマエナガ' })").unwrap();
-        let keys = labels
-            .get_translation_keys_for_member_expr(&member_expr)
-            .unwrap();
-        ["i18n.bird"].iter().for_each(|&key| {
-            assert!(keys.contains(key));
-        });
-
-        let member_expr = parse_member_expr("LABELS.size[type]({ name: 'シマエナガ' })").unwrap();
-        let keys = labels
-            .get_translation_keys_for_member_expr(&member_expr)
-            .unwrap();
-        ["i18n.bird.small", "i18n.bird.large"]
-            .iter()
-            .for_each(|&key| {
-                assert!(keys.contains(key));
-            });
+            "LABELS[type].size.small" => [
+                "i18n.pet.party",
+                "i18n.pet.party.desc",
+                "i18n.bird",
+                "i18n.bird.desc",
+                "i18n.bird.small",
+                "i18n.bird.large",
+                "i18n.cat",
+                "i18n.cat.desc",
+                "i18n.cat.small",
+                "i18n.cat.large",
+                "i18n.dog",
+                "i18n.dog.desc",
+                "i18n.dog.small",
+                "i18n.dog.large",
+            ]
+        );
     }
 }
