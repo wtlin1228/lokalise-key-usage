@@ -67,11 +67,11 @@ fn collect_all_paths(root: &PathBuf) -> anyhow::Result<Vec<PathBuf>> {
     let mut paths = vec![];
 
     if path.is_dir() {
-            for entry in path.read_dir()? {
-                if let Ok(entry) = entry {
-                    paths.append(&mut collect_all_paths(&entry.path())?);
-                }
+        for entry in path.read_dir()? {
+            if let Ok(entry) = entry {
+                paths.append(&mut collect_all_paths(&entry.path())?);
             }
+        }
         return Ok(paths);
     }
 

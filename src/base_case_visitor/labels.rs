@@ -156,6 +156,31 @@ fn flatten_translation_keys(object_lit: &ObjectLit) -> anyhow::Result<HashSet<St
     Ok(translation_keys)
 }
 
+fn insert_key_value_into_labels(
+    labels: &mut HashMap<String, TranslateObjectValue>,
+    key: String,
+    key_value_prop: &KeyValueProp,
+) -> anyhow::Result<()> {
+    labels.insert(
+        key,
+        match &*key_value_prop.value {
+            Expr::Object(object_lit) => {
+                TranslateObjectValue::NestedLabels(collect_labels_from_object_literal(object_lit)?)
+            }
+            Expr::Lit(lit) => match lit {
+                Lit::Str(Str { value, .. }) => TranslateObjectValue::String(value.to_string()),
+                _ => bail!("value can only be string and object literal"),
+            },
+            Expr::Array(array_lit) => {
+                let lazy_key = get_lazy_key_from_array_literal(array_lit)?;
+                TranslateObjectValue::String(lazy_key)
+            }
+            _ => bail!("value can only be string and object literal"),
+        },
+    );
+    Ok(())
+}
+
 pub fn collect_labels_from_object_literal(object_lit: &ObjectLit) -> anyhow::Result<LABELS> {
     let mut labels = HashMap::new();
     let mut translation_keys = HashSet::new();
@@ -164,53 +189,41 @@ pub fn collect_labels_from_object_literal(object_lit: &ObjectLit) -> anyhow::Res
         match prop_or_spread {
             PropOrSpread::Prop(prop) => match &**prop {
                 Prop::KeyValue(key_value_prop) => match &key_value_prop.key {
-                    PropName::Num(num) => {
+                    PropName::Str(s) => {
                         if has_computed_key {
-                            bail!("mixing string and computed keys is not allowed");
+                            bail!(
+                                "mixing string with computed keys is not allowed: {}",
+                                s.value
+                            );
                         }
-                        labels.insert(
-                            num.value.to_string(),
-                            match &*key_value_prop.value {
-                                Expr::Object(object_lit) => TranslateObjectValue::NestedLabels(
-                                    collect_labels_from_object_literal(object_lit)?,
-                                ),
-                                Expr::Lit(lit) => match lit {
-                                    Lit::Str(Str { value, .. }) => {
-                                        TranslateObjectValue::String(value.to_string())
-                                    }
-                                    _ => bail!("value can only be string and object literal"),
-                                },
-                                Expr::Array(array_lit) => {
-                                    let lazy_key = get_lazy_key_from_array_literal(array_lit)?;
-                                    TranslateObjectValue::String(lazy_key)
-                                }
-                                _ => bail!("value can only be string and object literal"),
-                            },
-                        );
+                        insert_key_value_into_labels(
+                            &mut labels,
+                            s.value.to_string(),
+                            key_value_prop,
+                        )?;
                     }
-                    PropName::Ident(ident) => {
+                    PropName::Num(n) => {
                         if has_computed_key {
-                            bail!("mixing string and computed keys is not allowed");
+                            bail!(
+                                "mixing number with computed keys is not allowed: {}",
+                                n.value
+                            );
                         }
-                        labels.insert(
-                            ident.sym.to_string(),
-                            match &*key_value_prop.value {
-                                Expr::Object(object_lit) => TranslateObjectValue::NestedLabels(
-                                    collect_labels_from_object_literal(object_lit)?,
-                                ),
-                                Expr::Lit(lit) => match lit {
-                                    Lit::Str(Str { value, .. }) => {
-                                        TranslateObjectValue::String(value.to_string())
-                                    }
-                                    _ => bail!("value can only be string and object literal"),
-                                },
-                                Expr::Array(array_lit) => {
-                                    let lazy_key = get_lazy_key_from_array_literal(array_lit)?;
-                                    TranslateObjectValue::String(lazy_key)
-                                }
-                                _ => bail!("value can only be string and object literal"),
-                            },
-                        );
+                        insert_key_value_into_labels(
+                            &mut labels,
+                            n.value.to_string(),
+                            key_value_prop,
+                        )?;
+                    }
+                    PropName::Ident(id) => {
+                        if has_computed_key {
+                            bail!("mixing ident with computed keys is not allowed: {}", id.sym);
+                        }
+                        insert_key_value_into_labels(
+                            &mut labels,
+                            id.sym.to_string(),
+                            key_value_prop,
+                        )?;
                     }
                     PropName::Computed(_) => {
                         if labels.len() != 0 {
