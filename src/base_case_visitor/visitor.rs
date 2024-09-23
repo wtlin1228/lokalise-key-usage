@@ -24,33 +24,35 @@ impl Visit for LabelVisitor {
     fn visit_module(&mut self, node: &Module) {
         for module_item in &node.body {
             match module_item {
-                ModuleItem::Stmt(stmt) => match stmt {
-                    Stmt::Decl(decl) => match decl {
-                        Decl::Var(var_decl) => {
-                            for var_declarator in var_decl.decls.iter() {
-                                match labels_translate_args(var_declarator) {
-                                    Some(args) => {
-                                        if args.len() == 0 {
-                                            panic!("translate should have at least 1 argument");
-                                        }
-                                        let first_arg = &args[0];
-                                        match &*first_arg.expr {
-                                            Expr::Object(object_lit) => {
-                                                self.labels = Some(
+                ModuleItem::Stmt(stmt) => {
+                    match stmt {
+                        Stmt::Decl(decl) => match decl {
+                            Decl::Var(var_decl) => {
+                                for var_declarator in var_decl.decls.iter() {
+                                    match labels_translate_args(var_declarator) {
+                                        Some(args) => {
+                                            if args.len() == 0 {
+                                                panic!("translate should have at least 1 argument");
+                                            }
+                                            let first_arg = &args[0];
+                                            match &*first_arg.expr {
+                                                Expr::Object(object_lit) => {
+                                                    self.labels = Some(
                                                     collect_labels_from_object_literal(object_lit)
                                                         .expect("collect labels from the object literal"));
-                                            },
-                                            _ => panic!("const LABELS = translate() should take an object as its first argument"),
+                                                }
+                                                _ => (),
+                                            }
                                         }
+                                        None => (),
                                     }
-                                    None => continue,
                                 }
                             }
-                        }
+                            _ => (),
+                        },
                         _ => (),
-                    },
-                    _ => (),
-                },
+                    }
+                }
                 _ => (),
             }
         }
