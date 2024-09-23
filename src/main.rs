@@ -65,15 +65,33 @@ fn main() -> anyhow::Result<()> {
 fn collect_all_paths(root: &PathBuf) -> anyhow::Result<Vec<PathBuf>> {
     let path = root.canonicalize()?;
     let mut paths = vec![];
-    match path.is_dir() {
-        true => {
+
+    if path.is_dir() {
             for entry in path.read_dir()? {
                 if let Ok(entry) = entry {
                     paths.append(&mut collect_all_paths(&entry.path())?);
                 }
             }
+        return Ok(paths);
+    }
+
+    let path_str = path.to_str().context("path to str")?;
+    if path_str.ends_with(".js")
+        || path_str.ends_with(".jsx")
+        || path_str.ends_with(".ts")
+        || path_str.ends_with(".tsx")
+    {
+        if !path_str.ends_with(".spec.js")
+            && !path_str.ends_with(".spec.jsx")
+            && !path_str.ends_with(".spec.ts")
+            && !path_str.ends_with(".spec.tsx")
+            && !path_str.ends_with(".test.js")
+            && !path_str.ends_with(".test.jsx")
+            && !path_str.ends_with(".test.ts")
+            && !path_str.ends_with(".test.tsx")
+        {
+            paths.push(path.clone())
         }
-        false => paths.push(path.clone()),
     }
     Ok(paths)
 }

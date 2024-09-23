@@ -164,6 +164,30 @@ pub fn collect_labels_from_object_literal(object_lit: &ObjectLit) -> anyhow::Res
         match prop_or_spread {
             PropOrSpread::Prop(prop) => match &**prop {
                 Prop::KeyValue(key_value_prop) => match &key_value_prop.key {
+                    PropName::Num(num) => {
+                        if has_computed_key {
+                            bail!("mixing string and computed keys is not allowed");
+                        }
+                        labels.insert(
+                            num.value.to_string(),
+                            match &*key_value_prop.value {
+                                Expr::Object(object_lit) => TranslateObjectValue::NestedLabels(
+                                    collect_labels_from_object_literal(object_lit)?,
+                                ),
+                                Expr::Lit(lit) => match lit {
+                                    Lit::Str(Str { value, .. }) => {
+                                        TranslateObjectValue::String(value.to_string())
+                                    }
+                                    _ => bail!("value can only be string and object literal"),
+                                },
+                                Expr::Array(array_lit) => {
+                                    let lazy_key = get_lazy_key_from_array_literal(array_lit)?;
+                                    TranslateObjectValue::String(lazy_key)
+                                }
+                                _ => bail!("value can only be string and object literal"),
+                            },
+                        );
+                    }
                     PropName::Ident(ident) => {
                         if has_computed_key {
                             bail!("mixing string and computed keys is not allowed");
@@ -190,7 +214,7 @@ pub fn collect_labels_from_object_literal(object_lit: &ObjectLit) -> anyhow::Res
                     }
                     PropName::Computed(_) => {
                         if labels.len() != 0 {
-                            panic!("mixing string and computed keys is not allowed");
+                            bail!("mixing string and computed keys is not allowed");
                         }
                         has_computed_key = true;
                         match &*key_value_prop.value {
