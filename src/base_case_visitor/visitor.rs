@@ -264,7 +264,7 @@ fn is_labels_obj(member_expr: &MemberExpr) -> bool {
     }
 }
 
-pub fn get_label_usage(
+pub fn get_labels_usage(
     module: &Module,
 ) -> anyhow::Result<Option<HashMap<String, HashSet<String>>>> {
     let mut label_visitor = LabelVisitor::new();
@@ -287,7 +287,7 @@ mod tests {
     macro_rules! assert_label_usage {
         ($code:expr, $($symbol_name:expr => $expected_keys:expr),* $(,)?) => {{
             let module = test_utils::parse_module($code).unwrap();
-            let label_usage = get_label_usage(&module).unwrap().unwrap();
+            let label_usage = get_labels_usage(&module).unwrap().unwrap();
 
             $(
                 let keys = label_usage.get($symbol_name).unwrap();
